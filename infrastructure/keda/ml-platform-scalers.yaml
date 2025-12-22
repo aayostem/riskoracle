@@ -1,0 +1,100 @@
+# infrastructure/keda/ml-platform-scalers.yaml
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: mlflow-scaler
+  namespace: ml-platform
+spec:
+  scaleTargetRef:
+    name: mlflow
+    kind: Deployment
+  pollingInterval: 30
+  cooldownPeriod: 300
+  minReplicaCount: 3
+  maxReplicaCount: 20
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-operated.monitoring.svc.cluster.local:9090
+      metricName: mlflow_request_rate
+      query: |
+        rate(
+          http_requests_total{
+            namespace="ml-platform",
+            pod=~"mlflow-.*"
+          }[2m]
+        )
+      threshold: "100"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: feature-service-scaler
+  namespace: ml-platform
+spec:
+  scaleTargetRef:
+    name: feature-service
+    kind: Deployment
+  pollingInterval: 30
+  cooldownPeriod: 300
+  minReplicaCount: 3
+  maxReplicaCount: 30
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-operated.monitoring.svc.cluster.local:9090
+      metricName: feature_service_latency_p99
+      query: |
+        histogram_quantile(0.99,
+          rate(
+            feature_retrieval_latency_seconds_bucket{
+              namespace="ml-platform",
+              pod=~"feature-service-.*"
+            }[2m]
+          )
+        )
+      threshold: "0.1"
+  - type: redis
+    metadata:
+      address: redis.ml-platform.svc.cluster.local:6379
+      listName: feature_requests
+      listLength: "1000"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: model-serving-scaler
+  namespace: ml-platform
+spec:
+  scaleTargetRef:
+    name: fraud-detection-predictor
+    kind: Deployment
+  pollingInterval: 10
+  cooldownPeriod: 60
+  minReplicaCount: 2
+  maxReplicaCount: 50
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus-operated.monitoring.svc.cluster.local:9090
+      metricName: model_inference_queue
+      query: |
+        sum(
+          rate(
+            model_predictions_total{
+              namespace="ml-platform"
+            }[1m]
+          )
+        ) - 
+        sum(
+          rate(
+            model_predictions_processed_total{
+              namespace="ml-platform"
+            }[1m]
+          )
+        )
+      threshold: "10"
+  - type: cpu
+    metadata:
+      type: Utilization
+      value: "70"

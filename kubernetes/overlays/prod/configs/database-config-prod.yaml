@@ -1,0 +1,7 @@
+DATABASE_HOST: postgres-prod.ml-platform.svc.cluster.local
+DATABASE_PORT: "5432"
+DATABASE_NAME: ml_platform_prod
+DATABASE_USER: mlflow_prod
+DATABASE_SSL_MODE: require
+DATABASE_POOL_SIZE: "20"
+DATABASE_TIMEOUT: "30"

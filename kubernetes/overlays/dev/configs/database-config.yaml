@@ -1,0 +1,4 @@
+DATABASE_HOST: postgres
+DATABASE_PORT: "5432"
+DATABASE_NAME: ml_platform
+DATABASE_USER: admin

@@ -1,0 +1,42 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: fraud-detection
+  namespace: ml-platform
+  annotations:
+    serving.kserve.io/enable-prometheus-scraping: "true"
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: xgboost
+      storageUri: s3://ml-platform-dev-mlflow-artifacts/1/$(MODEL_VERSION)/artifacts/model
+      env:
+        - name: MODEL_VERSION
+          value: "latest"
+    minReplicas: 2
+    maxReplicas: 10
+    scaleTarget: 50
+    scaleMetric: concurrency
+    containers:
+    - name: kserve-container
+      resources:
+        requests:
+          cpu: "200m"
+          memory: "512Mi"
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+      env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: ml-platform-secrets
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ml-platform-secrets
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_DEFAULT_REGION
+          value: "us-east-1"

@@ -1,0 +1,34 @@
+# Core ML
+snorkel>=0.9.0
+evidently>=0.4.0
+great-expectations>=0.18.0
+
+# MLOps
+feast-aws>=0.1.0
+kfp>=2.0.0
+kfp-tekton>=1.0.0
+
+# Monitoring & Observability
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+opentelemetry-instrumentation-fastapi>=0.41b0
+prometheus-client>=0.18.0
+grafana-client>=3.1.0
+jaeger-client>=4.8.0
+
+# Cloud Providers
+google-cloud-storage>=2.10.0
+azure-storage-blob>=12.18.0
+snowflake-connector-python>=3.0.0
+
+# Security
+vault-python>=5.0.0
+
+# Model Serving
+tritonclient[all]>=2.34.0
+
+# UI
+streamlit>=1.28.0
+
+# CLI Tools
+databricks-cli>=0.17.0

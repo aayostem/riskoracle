@@ -1,0 +1,222 @@
+name: ML Platform CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pre-commit black flake8 isort mypy
+    
+    - name: Run pre-commit
+      run: pre-commit run --all-files
+    
+    - name: Lint Python code
+      run: |
+        black --check src/python/
+        flake8 src/python/
+        isort --check-only src/python/
+        mypy src/python/
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+    
+    - name: Run unit tests
+      run: |
+        pytest tests/unit/ -v --cov=src --cov-report=xml
+    
+    - name: Run integration tests
+      run: |
+        pytest tests/integration/ -v
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'python:3.11-slim'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Run Bandit security linter
+      run: |
+        pip install bandit
+        bandit -r src/python/ -f json -o bandit-report.json
+    
+    - name: Terraform security scan
+      uses: bridgecrewio/checkov-action@master
+      with:
+        directory: infrastructure/terraform/
+        framework: terraform
+    
+    - name: Kubernetes security scan
+      uses: bridgecrewio/checkov-action@master
+      with:
+        directory: kubernetes/
+        framework: kubernetes
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [test, security-scan]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push ML Service
+      uses: docker/build-push-action@v4
+      with:
+        context: ./src/python/ml-service
+        file: ./src/python/ml-service/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/ml-service:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/ml-service:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Build and push Feature Service
+      uses: docker/build-push-action@v4
+      with:
+        context: ./src/python/feature-service
+        file: ./src/python/feature-service/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/feature-service:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/feature-service:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy-dev:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/develop'
+    environment: development
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig \
+          --name ml-platform-dev \
+          --region us-east-1
+    
+    - name: Deploy to development
+      run: |
+        kubectl apply -k kubernetes/overlays/dev/ml-platform/
+        kubectl rollout status deployment/mlflow -n ml-platform
+        kubectl rollout status deployment/jupyter -n ml-platform
+    
+    - name: Run smoke tests
+      run: |
+        # Wait for services to be ready
+        sleep 30
+        
+        # Test MLFlow endpoint
+        curl -f http://mlflow.ml-platform.svc.cluster.local:5000 || exit 1
+        
+        # Test Jupyter endpoint
+        curl -f http://jupyter.ml-platform.svc.cluster.local:8888/api || exit 1
+
+  deploy-prod:
+    runs-on: ubuntu-latest
+    needs: deploy-dev
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+        aws-region: us-east-1
+    
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig \
+          --name ml-platform-prod \
+          --region us-east-1
+    
+    - name: Deploy with ArgoCD
+      run: |
+        argocd app sync ml-platform \
+          --revision ${{ github.sha }} \
+          --server ${{ secrets.ARGOCD_SERVER }} \
+          --auth-token ${{ secrets.ARGOCD_TOKEN }}
+    
+    - name: Wait for deployment
+      run: |
+        kubectl wait --for=condition=available deployment/mlflow -n ml-platform --timeout=300s
+        kubectl wait --for=condition=available deployment/jupyter -n ml-platform --timeout=300s

@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: ml-platform
+spec:
+  template:
+    spec:
+      containers:
+      - name: mlflow
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1"
+        env:
+        - name: JAVA_OPTS
+          value: "-Xmx1g -Xms512m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jupyter
+  namespace: ml-platform
+spec:
+  template:
+    spec:
+      containers:
+      - name: jupyter
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        env:
+        - name: MEM_LIMIT
+          value: "4G"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feature-service
+  namespace: ml-platform
+spec:
+  template:
+    spec:
+      containers:
+      - name: feature-service
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-monitoring
+  namespace: ml-platform
+spec:
+  template:
+    spec:
+      containers:
+      - name: model-monitoring
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: ml-platform
+spec:
+  template:
+    spec:
+      containers:
+      - name: redis
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        args: ["--maxmemory", "3gb", "--maxmemory-policy", "allkeys-lru"]

@@ -1,0 +1,25 @@
+name: fraud_detection
+
+conda_env: conda.yaml
+
+entry_points:
+  main:
+    parameters:
+      data_path: {type: str, default: "data/"}
+      test_size: {type: float, default: 0.2}
+      n_estimators: {type: int, default: 100}
+      max_depth: {type: int, default: 6}
+    command: "python train.py --data-path {data_path} --test-size {test_size} --n-estimators {n_estimators} --max-depth {max_depth}"
+  
+  evaluate:
+    parameters:
+      model_uri: {type: str}
+      test_data: {type: str}
+    command: "python evaluate.py --model-uri {model_uri} --test-data {test_data}"
+  
+  serve:
+    parameters:
+      model_uri: {type: str}
+      port: {type: int, default: 5000}
+      host: {type: str, default: "0.0.0.0"}
+    command: "mlflow models serve -m {model_uri} -p {port} -h {host}"

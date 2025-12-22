@@ -1,0 +1,59 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ml-platform
+
+resources:
+  - ../../base
+
+bases:
+  - ../dev
+
+patchesStrategicMerge:
+  - patches/production-scale.yaml
+  - patches/production-resources.yaml
+  - patches/production-security.yaml
+  - patches/production-monitoring.yaml
+
+configMapGenerator:
+  - name: ml-platform-config-prod
+    behavior: merge
+    files:
+      - configs/production-config.yaml
+      - configs/s3-config-prod.yaml
+      - configs/database-config-prod.yaml
+
+secretGenerator:
+  - name: ml-platform-secrets-prod
+    behavior: merge
+    envs:
+      - .env.secret.prod
+    options:
+      disableNameSuffixHash: true
+
+images:
+  - name: mlflow
+    newName: ghcr.io/mlflow/mlflow
+    newTag: v2.4.1
+  - name: jupyter
+    newName: jupyter/tensorflow-notebook
+    newTag: latest
+  - name: redis
+    newName: redis
+    newTag: 7-alpine
+
+vars:
+  - name: MLFLOW_IAM_ROLE_ARN
+    objref:
+      kind: ConfigMap
+      name: ml-platform-config-prod
+      apiVersion: v1
+    fieldref:
+      fieldpath: data.MLFLOW_IAM_ROLE_ARN
+  - name: DATABASE_HOST
+    objref:
+      kind: ConfigMap
+      name: ml-platform-config-prod
+      apiVersion: v1
+    fieldref:
+      fieldpath: data.DATABASE_HOST
