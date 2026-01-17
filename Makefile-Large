@@ -1,0 +1,300 @@
+.PHONY: help init setup-dev install install-dev install-prod \
+        setup-git setup-pre-commit test test-unit test-integration test-e2e test-performance \
+        lint format security-check docker-build docker-run docker-stop docker-clean \
+        notebook notebook-kernel docs docs-serve clean reset dev \
+        check-updates shell setup-local-infra health-check check-prerequisites
+
+# Colors for output
+RED = \033[0;31m
+GREEN = \033[0;32m
+YELLOW = \033[1;33m
+BLUE = \033[0;34m
+NC = \033[0m # No Color
+
+# Variables
+VENV_NAME = .venv
+PYTHON = python
+ifeq ($(OS),Windows_NT)
+    PIP = $(VENV_NAME)\Scripts\pip
+    PYTHON_VENV = $(VENV_NAME)\Scripts\python
+else
+    PIP = $(VENV_NAME)/bin/pip
+    PYTHON_VENV = $(VENV_NAME)/bin/python
+endif
+UV = $(VENV_NAME)/bin/uv  # Optional: for faster package management
+
+help: ## Display this help message
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "$(BLUE)%-30s$(NC) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+init: ## Initialize the entire project (first time setup)
+	@echo "$(GREEN)🚀 Initializing ML Platform Project...$(NC)"
+	$(MAKE) check-prerequisites
+	$(MAKE) setup-dev
+	$(MAKE) setup-git
+	$(MAKE) setup-pre-commit
+	@echo "$(GREEN)✅ Project initialization complete!$(NC)"
+	@echo ""
+	@echo "$(YELLOW)Next steps:$(NC)"
+	@echo "  1. Activate virtual environment: $(BLUE)source $(VENV_NAME)/bin/activate$(NC)"
+	@echo "  2. Start Jupyter Lab: $(BLUE)make notebook$(NC)"
+	@echo "  3. Start local services: $(BLUE)make docker-run$(NC)"
+
+check-prerequisites: ## Check if required tools are installed
+	@echo "$(GREEN)Checking prerequisites...$(NC)"
+	@command -v $(PYTHON) >/dev/null 2>&1 || { echo >&2 "$(RED)Python 3.11 is required but not installed.$(NC)"; exit 1; }
+	@command -v docker >/dev/null 2>&1 || { echo >&2 "$(RED)Docker is required but not installed.$(NC)"; exit 1; }
+	@command -v docker-compose >/dev/null 2>&1 || { echo >&2 "$(RED)Docker Compose is required but not installed.$(NC)"; exit 1; }
+	@command -v make >/dev/null 2>&1 || { echo >&2 "$(RED)Make is required but not installed.$(NC)"; exit 1; }
+	@echo "$(GREEN)✅ All prerequisites satisfied$(NC)"
+
+setup-dev: ## Create virtual environment and install all dependencies
+	@echo "$(GREEN)Setting up virtual environment...$(NC)"
+	@if [ ! -d "$(VENV_NAME)" ]; then \
+		echo "$(YELLOW)Creating virtual environment...$(NC)"; \
+		$(PYTHON) -m venv $(VENV_NAME); \
+	fi
+	$(MAKE) install-dev
+	@echo "$(GREEN)✅ Virtual environment ready!$(NC)"
+	@echo "$(YELLOW)Activate with: $(BLUE)source $(VENV_NAME)/bin/activate$(NC)"
+
+install: ## Install package in development mode (from pyproject.toml)
+	@echo "$(GREEN)Installing package in development mode...$(NC)"
+	$(PIP) install -e .[dev]
+	@echo "$(GREEN)✅ Package installed$(NC)"
+
+install-dev: ## Install development dependencies
+	@echo "$(GREEN)Installing development dependencies...$(NC)"
+	$(PIP) install --upgrade pip
+	$(PIP) install -e .[dev]
+	@echo "$(GREEN)✅ Development dependencies installed$(NC)"
+
+install-prod: ## Install production dependencies only
+	@echo "$(GREEN)Installing production dependencies...$(NC)"
+	$(PIP) install --upgrade pip
+	$(PIP) install .  # Installs only main dependencies from pyproject.toml
+	@echo "$(GREEN)✅ Production dependencies installed$(NC)"
+
+setup-git: ## Setup git configuration for the project
+	@echo "$(GREEN)Setting up git...$(NC)"
+	@if [ -d .githooks ]; then \
+		git config core.hooksPath .githooks; \
+	fi
+	@if [ -f .gitmessage ]; then \
+		git config commit.template .gitmessage; \
+	fi
+	@echo "$(GREEN)✅ Git configured$(NC)"
+
+setup-pre-commit: ## Install and setup pre-commit hooks
+	@echo "$(GREEN)Setting up pre-commit hooks...$(NC)"
+	$(PYTHON_VENV) -m pre_commit install
+	$(PYTHON_VENV) -m pre_commit install --hook-type commit-msg
+	@echo "$(GREEN)✅ Pre-commit hooks installed$(NC)"
+
+test: ## Run all tests
+	@echo "$(GREEN)Running tests...$(NC)"
+	@if [ -d tests ]; then \
+		$(PYTHON_VENV) -m pytest tests/ -v --cov=src --cov-report=html --cov-report=xml; \
+	else \
+		echo "$(YELLOW)No tests directory found. Skipping tests.$(NC)"; \
+	fi
+
+test-unit: ## Run unit tests only
+	@if [ -d tests/unit ]; then \
+		$(PYTHON_VENV) -m pytest tests/unit/ -v; \
+	else \
+		echo "$(YELLOW)No unit tests directory found.$(NC)"; \
+	fi
+
+test-integration: ## Run integration tests only
+	@if [ -d tests/integration ]; then \
+		$(PYTHON_VENV) -m pytest tests/integration/ -v; \
+	else \
+		echo "$(YELLOW)No integration tests directory found.$(NC)"; \
+	fi
+
+test-e2e: ## Run end-to-end tests only
+	@if [ -d tests/e2e ]; then \
+		$(PYTHON_VENV) -m pytest tests/e2e/ -v; \
+	else \
+		echo "$(YELLOW)No e2e tests directory found.$(NC)"; \
+	fi
+
+test-performance: ## Run performance tests
+	@if [ -d tests/performance ]; then \
+		$(PYTHON_VENV) -m pytest tests/performance/ -v --benchmark-only; \
+	else \
+		echo "$(YELLOW)No performance tests directory found.$(NC)"; \
+	fi
+
+lint: ## Run all linters
+	@echo "$(GREEN)Running linters...$(NC)"
+	@if [ -d src ]; then \
+		$(PYTHON_VENV) -m black --check src/ tests/ || echo "$(YELLOW)Black found issues$(NC)"; \
+		$(PYTHON_VENV) -m flake8 src/ tests/ || echo "$(YELLOW)Flake8 found issues$(NC)"; \
+		$(PYTHON_VENV) -m mypy src/ || echo "$(YELLOW)Mypy found issues$(NC)"; \
+		$(PYTHON_VENV) -m isort --check-only src/ tests/ || echo "$(YELLOW)Isort found issues$(NC)"; \
+	else \
+		echo "$(YELLOW)No src directory found. Skipping linting.$(NC)"; \
+	fi
+
+format: ## Format code automatically
+	@echo "$(GREEN)Formatting code...$(NC)"
+	@if [ -d src ]; then \
+		$(PYTHON_VENV) -m black src/ tests/; \
+		$(PYTHON_VENV) -m isort src/ tests/; \
+		@if command -v autoflake >/dev/null 2>&1; then \
+			$(PYTHON_VENV) -m autoflake --in-place --remove-all-unused-imports --recursive src/ tests/; \
+		fi \
+	else \
+		echo "$(YELLOW)No src directory found. Skipping formatting.$(NC)"; \
+	fi
+
+security-check: ## Run security checks
+	@echo "$(GREEN)Running security checks...$(NC)"
+	@if [ -d src ]; then \
+		$(PYTHON_VENV) -m bandit -r src/ -f json -o bandit-report.json; \
+		$(PYTHON_VENV) -m safety check --json --output safety-report.json; \
+		@echo "$(GREEN)✅ Security checks completed$(NC)"; \
+	else \
+		echo "$(YELLOW)No src directory found. Skipping security checks.$(NC)"; \
+	fi
+
+docker-build: ## Build all Docker images
+	@echo "$(GREEN)Building Docker images...$(NC)"
+	@if [ -f docker-compose.yml ]; then \
+		docker-compose build --parallel; \
+	else \
+		echo "$(RED)docker-compose.yml not found.$(NC)"; \
+	fi
+
+docker-run: ## Start all Docker services
+	@echo "$(GREEN)Starting Docker services...$(NC)"
+	@if [ -f docker-compose.yml ]; then \
+		docker-compose up -d; \
+		@echo "$(GREEN)✅ Services started$(NC)"; \
+		@echo "$(YELLOW)Services available at:$(NC)"; \
+		@echo "  - MLflow: http://localhost:5000"; \
+		@echo "  - Jupyter: http://localhost:8888"; \
+		@echo "  - MinIO: http://localhost:9001"; \
+		@echo "  - Redis: localhost:6379"; \
+		@echo "  - PostgreSQL: localhost:5432"; \
+	else \
+		echo "$(RED)docker-compose.yml not found.$(NC)"; \
+	fi
+
+docker-stop: ## Stop all Docker services
+	@echo "$(YELLOW)Stopping Docker services...$(NC)"
+	@if [ -f docker-compose.yml ]; then \
+		docker-compose down; \
+	else \
+		echo "$(YELLOW)No docker-compose.yml found.$(NC)"; \
+	fi
+
+docker-clean: ## Remove all Docker containers and volumes
+	@echo "$(YELLOW)Cleaning Docker environment...$(NC)"
+	@if [ -f docker-compose.yml ]; then \
+		docker-compose down -v; \
+	fi
+	docker system prune -f
+
+notebook: ## Start Jupyter Lab notebook server
+	@echo "$(GREEN)Starting Jupyter Lab...$(NC)"
+	$(PYTHON_VENV) -m jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --NotebookApp.token='' --NotebookApp.password=''
+
+notebook-kernel: ## Install Jupyter kernel for virtual environment
+	@echo "$(GREEN)Installing Jupyter kernel...$(NC)"
+	$(PYTHON_VENV) -m ipykernel install --user --name=ml-platform-dev --display-name="ML Platform Dev"
+
+docs: ## Build documentation
+	@echo "$(GREEN)Building documentation...$(NC)"
+	@if [ -f mkdocs.yml ]; then \
+		$(PYTHON_VENV) -m mkdocs build; \
+	else \
+		echo "$(YELLOW)No mkdocs.yml found. Skipping documentation build.$(NC)"; \
+	fi
+
+docs-serve: ## Serve documentation locally
+	@echo "$(GREEN)Serving documentation...$(NC)"
+	@if [ -f mkdocs.yml ]; then \
+		$(PYTHON_VENV) -m mkdocs serve; \
+	else \
+		echo "$(YELLOW)No mkdocs.yml found.$(NC)"; \
+	fi
+
+clean: ## Clean all generated files and caches
+	@echo "$(YELLOW)Cleaning project...$(NC)"
+	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	@find . -type f -name "*.pyo" -delete 2>/dev/null || true
+	@find . -type f -name ".coverage" -delete 2>/dev/null || true
+	@find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name ".mypy_cache" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name ".hypothesis" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name ".ipynb_checkpoints" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type d -name "htmlcov" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name "coverage.xml" -delete 2>/dev/null || true
+	@find . -type f -name "bandit-report.json" -delete 2>/dev/null || true
+	@find . -type f -name "safety-report.json" -delete 2>/dev/null || true
+	@rm -rf .tox dist build .coverage .benchmarks 2>/dev/null || true
+	@echo "$(GREEN)✅ Project cleaned$(NC)"
+
+reset: ## Reset project to clean state (docker + virtual environment)
+	@echo "$(YELLOW)Resetting project...$(NC)"
+	$(MAKE) docker-clean
+	rm -rf $(VENV_NAME)
+	$(MAKE) clean
+	@echo "$(GREEN)✅ Project reset complete$(NC)"
+
+dev: ## Start complete development environment
+	@echo "$(GREEN)Starting development environment...$(NC)"
+	$(MAKE) docker-run
+	$(MAKE) notebook
+	@echo "$(GREEN)✅ Development environment ready!$(NC)"
+
+check-updates: ## Check for dependency updates
+	@echo "$(GREEN)Checking for dependency updates...$(NC)"
+	$(PIP) list --outdated --format=columns
+	@echo "$(YELLOW)To update packages:$(NC)"
+	@echo "  pip install --upgrade PACKAGE_NAME"
+
+shell: ## Activate virtual environment shell
+	@echo "$(GREEN)Virtual environment shell...$(NC)"
+	@echo "$(YELLOW)Run: source $(VENV_NAME)/bin/activate$(NC)"
+	@echo "$(YELLOW)Or use: $(VENV_NAME)/bin/python ...$(NC)"
+
+setup-local-infra: ## Setup local infrastructure (LocalStack, etc.)
+	@echo "$(GREEN)Setting up local infrastructure...$(NC)"
+	@if [ -f docker-compose.infrastructure.yml ]; then \
+		docker-compose -f docker-compose.infrastructure.yml up -d; \
+		@echo "$(GREEN)✅ Local infrastructure started$(NC)"; \
+		@echo "$(YELLOW)LocalStack: http://localhost:4566$(NC)"; \
+		@echo "$(YELLOW)MinIO: http://localhost:9001$(NC)"; \
+		@echo "$(YELLOW)Redis: localhost:6379$(NC)"; \
+	else \
+		echo "$(YELLOW)docker-compose.infrastructure.yml not found.$(NC)"; \
+	fi
+
+health-check: ## Check health of all services
+	@echo "$(GREEN)Checking service health...$(NC)"
+	@echo "$(BLUE)Docker services:$(NC)"
+	@if [ -f docker-compose.yml ]; then \
+		docker-compose ps 2>/dev/null || echo "$(YELLOW)Docker compose not running$(NC)"; \
+	else \
+		echo "$(YELLOW)No docker-compose.yml found.$(NC)"; \
+	fi
+	@echo ""
+	@echo "$(BLUE)Virtual environment:$(NC)"
+	@if [ -d "$(VENV_NAME)" ]; then \
+		echo "$(GREEN)Virtual environment exists at $(VENV_NAME)$(NC)"; \
+		@echo "$(BLUE)Python version:$(NC)"; \
+		$(PYTHON_VENV) --version; \
+	else \
+		echo "$(YELLOW)Virtual environment not found$(NC)"; \
+	fi
+
+venv-clean: ## Remove and recreate virtual environment
+	@echo "$(YELLOW)Cleaning virtual environment...$(NC)"
+	rm -rf $(VENV_NAME)
+	$(MAKE) setup-dev
+	@echo "$(GREEN)✅ Virtual environment recreated$(NC)"

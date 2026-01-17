@@ -1,0 +1,28 @@
+.PHONY: help setup install test clean
+
+help:
+	@echo "Commands:"
+	@echo "  make setup   - Create virtual environment"
+	@echo "  make install - Install dependencies"
+	@echo "  make test    - Run tests"
+	@echo "  make clean   - Clean project"
+
+setup:
+	@echo "Creating virtual environment..."
+	python -m venv .venv
+	@echo "✅ Virtual environment created"
+	@echo "Activate with: .venv\\Scripts\\activate (Windows) or source .venv/bin/activate (Mac/Linux)"
+
+install:
+	@echo "Installing dependencies..."
+	.venv/Scripts/python -m pip install --upgrade pip 2>nul || .venv/bin/python -m pip install --upgrade pip
+	.venv/Scripts/python -m pip install -e .[dev] 2>nul || .venv/bin/python -m pip install -e .[dev]
+	@echo "✅ Dependencies installed"
+
+test:
+	.venv/Scripts/python -m pytest tests/ -v 2>nul || .venv/bin/python -m pytest tests/ -v
+
+clean:
+	@echo "Cleaning project..."
+	rm -rf __pycache__ .pytest_cache .coverage htmlcov *.egg-info 2>nul || true
+	@echo "✅ Project cleaned"
