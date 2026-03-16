@@ -1,5 +1,0 @@
-AWS_REGION: us-east-1
-S3_BUCKET_MLFLOW: ml-platform-prod-mlflow-artifacts-${AWS_ACCOUNT_ID}
-S3_BUCKET_DATA: ml-platform-prod-data-lake-${AWS_ACCOUNT_ID}
-MLFLOW_S3_ENDPOINT_URL: https://s3.amazonaws.com
-MLFLOW_IAM_ROLE_ARN: arn:aws:iam::${AWS_ACCOUNT_ID}:role/ml-platform-prod-mlflow-sa
